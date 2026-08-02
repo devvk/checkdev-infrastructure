@@ -1,0 +1,127 @@
+services:
+  postgres:
+    image: postgres:18
+
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+
+    ports: ["5432:5432"]
+
+    volumes:
+      - postgres_data:/var/lib/postgresql
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER}" ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  eureka:
+    build: ../checkdev-eureka
+    ports: ["9009:9009"]
+
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -f http://localhost:9009 || exit 1" ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  auth:
+    build: ../checkdev-auth
+    ports: ["9900:9900"]
+
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/cd_auth
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka:9009/eureka
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  desc:
+    build: ../checkdev-desc
+    ports: ["9902:9902"]
+
+    environment:
+      SECURITY_OAUTH2_RESOURCE_USERINFOURI: http://auth:9900/user
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/cd_desc
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka:9009/eureka
+
+  generator:
+    build: ../checkdev-generator
+    ports: ["9903:9903"]
+
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/cd_generator
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      SECURITY_OAUTH2_RESOURCE_USERINFOURI: http://auth:9900/user
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka:9009/eureka
+      HH_TOKEN: ${HH_TOKEN}
+
+  mock:
+    build: ../checkdev-mock
+    ports: ["9912:9912"]
+
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/cd_mock
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      SECURITY_OAUTH2_RESOURCE_USERINFOURI: http://auth:9900/user
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka:9009/eureka
+
+
+  site:
+    build: ../checkdev-site
+    ports: ["8080:8080"]
+
+    environment:
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka:9009/eureka
+
+    depends_on:
+      eureka:
+        condition: service_healthy
+      auth:
+        condition: service_started
+      desc:
+        condition: service_started
+      generator:
+        condition: service_started
+      mock:
+        condition: service_started
+
+    entrypoint: ["sh", "-c", "sleep 20 && exec java -jar app.jar"]
+
+  notification:
+    build: ../checkdev-notification
+    ports: [ "9920:9920" ]
+
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/cd_notification
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+
+      SECURITY_OAUTH2_RESOURCE_USERINFOURI: http://auth:9900/user
+      SERVER_AUTH: http://auth:9900
+      SITE_LOGIN_URL: http://site:8080/login
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka:9009/eureka
+
+      TG_USERNAME: ${TG_USERNAME}
+      TG_TOKEN: ${TG_TOKEN}
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      eureka:
+        condition: service_healthy
+      auth:
+        condition: service_started
+
+volumes:
+  postgres_data:
