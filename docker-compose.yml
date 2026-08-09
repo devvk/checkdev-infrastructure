@@ -18,6 +18,20 @@ services:
       timeout: 3s
       retries: 10
 
+  keycloak:
+    image: quay.io/keycloak/keycloak:latest
+    command: start-dev
+
+    ports:
+      - "8081:8080"
+
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+
+    volumes:
+      - keycloak_data:/opt/keycloak/data
+
   eureka:
     build: ../checkdev-eureka
     ports: ["9009:9009"]
@@ -37,10 +51,13 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
       EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka:9009/eureka
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak:8080/realms/checkdev/protocol/openid-connect/certs
 
     depends_on:
       postgres:
         condition: service_healthy
+      keycloak:
+        condition: service_started
 
   desc:
     build: ../checkdev-desc
@@ -115,6 +132,10 @@ services:
       TG_USERNAME: ${TG_USERNAME}
       TG_TOKEN: ${TG_TOKEN}
 
+      KEYCLOAK_TOKEN_URI: http://keycloak:8080/realms/checkdev/protocol/openid-connect/token
+      KEYCLOAK_CLIENT_ID: notification
+      KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET}
+
     depends_on:
       postgres:
         condition: service_healthy
@@ -125,3 +146,4 @@ services:
 
 volumes:
   postgres_data:
+  keycloak_data:

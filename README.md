@@ -33,6 +33,8 @@ HH_TOKEN=your_hh_token
 
 TG_USERNAME=your_bot_username
 TG_TOKEN=your_bot_token
+
+KEYCLOAK_CLIENT_SECRET=your_client_secret
 ```
 
 ## Запуск
@@ -55,7 +57,94 @@ docker compose up -d
 docker compose ps
 ```
 
-Просмотреть логи всех сервисов:
+## Настройка Keycloak
+
+После первого запуска откройте административную консоль:
+
+http://localhost:8081
+
+Войдите:
+
+```
+Username: admin
+Password: admin
+```
+
+### Создание Realm
+
+Создайте Realm:
+
+```
+checkdev
+```
+
+### Создание Client
+
+Создайте Client:
+
+```
+Client ID:
+notification
+```
+
+В разделе **Capability config** включите:
+
+- Client authentication — On
+- Service account roles — On
+
+После создания клиента откройте вкладку **Credentials**, скопируйте **Client Secret** и добавьте его в `.env`:
+
+```env
+KEYCLOAK_CLIENT_SECRET=your_client_secret
+```
+
+После изменения `.env` пересоздайте сервис notification:
+
+```bash
+docker compose up -d --force-recreate notification
+```
+
+## Проверка авторизации
+
+Получить Service Token:
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8081/realms/checkdev/protocol/openid-connect/token \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=client_credentials" \
+  -d "client_id=notification" \
+  -d "client_secret=$KEYCLOAK_CLIENT_SECRET" \
+  | jq -r '.access_token')
+```
+
+Проверить доступ к защищенному endpoint:
+
+```bash
+curl -i http://localhost:9900/profiles/tg/1 \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Ожидаемый результат:
+
+```
+HTTP/1.1 200 OK
+```
+
+Проверка без токена:
+
+```bash
+curl -i http://localhost:9900/profiles/tg/1
+```
+
+Ожидаемый результат:
+
+```
+HTTP/1.1 401 Unauthorized
+```
+
+## Просмотр логов
+
+Все сервисы:
 
 ```bash
 docker compose logs -f
@@ -71,6 +160,7 @@ docker compose logs -f site
 
 - Site: http://localhost:8080
 - Eureka: http://localhost:9009
+- Keycloak: http://localhost:8081
 
 ## Остановка
 
@@ -80,9 +170,9 @@ docker compose logs -f site
 docker compose down
 ```
 
-При обычной остановке данные PostgreSQL сохраняются в Docker Volume.
+При обычной остановке данные PostgreSQL и Keycloak сохраняются в Docker Volumes.
 
-Для удаления контейнеров вместе с данными базы данных:
+Для удаления контейнеров вместе со всеми данными:
 
 ```bash
 docker compose down -v
@@ -99,4 +189,7 @@ docker compose down
 docker compose up -d
 ```
 
-4. Убедиться, что данные сохранились после повторного запуска контейнеров.
+4. Убедиться, что:
+    - данные PostgreSQL сохранились;
+    - Realm `checkdev` сохранился;
+    - Client `notification` сохранился.
