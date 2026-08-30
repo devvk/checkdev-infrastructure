@@ -1,12 +1,12 @@
 services:
+
   postgres:
     image: postgres:18
+    ports: [ "5432:5432" ]
 
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-
-    ports: ["5432:5432"]
 
     volumes:
       - postgres_data:/var/lib/postgresql
@@ -21,9 +21,7 @@ services:
   keycloak:
     image: quay.io/keycloak/keycloak:latest
     command: start-dev
-
-    ports:
-      - "8081:8080"
+    ports: [ "8081:8080" ]
 
     environment:
       KEYCLOAK_ADMIN: admin
@@ -32,9 +30,54 @@ services:
     volumes:
       - keycloak_data:/opt/keycloak/data
 
+  kafka:
+    image: apache/kafka:4.3.1
+    ports: [ "9092:9092" ]
+
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:29093
+
+      KAFKA_LISTENERS: PLAINTEXT://kafka:29092,CONTROLLER://kafka:29093,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+
+    healthcheck:
+      test: [ "CMD-SHELL",
+              "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1" ]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
+
+  kafka-ui:
+    image: ghcr.io/kafbat/kafka-ui:latest
+    ports: [ "8085:8080" ]
+
+    environment:
+      KAFKA_CLUSTERS_0_NAME: checkdev-local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+
+    depends_on:
+      kafka:
+        condition: service_healthy
+
   eureka:
     build: ../checkdev-eureka
-    ports: ["9009:9009"]
+    ports: [ "9009:9009" ]
 
     healthcheck:
       test: [ "CMD-SHELL", "curl -f http://localhost:9009 || exit 1" ]
@@ -44,7 +87,7 @@ services:
 
   auth:
     build: ../checkdev-auth
-    ports: ["9900:9900"]
+    ports: [ "9900:9900" ]
 
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/cd_auth
@@ -61,7 +104,7 @@ services:
 
   desc:
     build: ../checkdev-desc
-    ports: ["9902:9902"]
+    ports: [ "9902:9902" ]
 
     environment:
       SECURITY_OAUTH2_RESOURCE_USERINFOURI: http://auth:9900/user
@@ -72,7 +115,7 @@ services:
 
   generator:
     build: ../checkdev-generator
-    ports: ["9903:9903"]
+    ports: [ "9903:9903" ]
 
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/cd_generator
@@ -84,7 +127,7 @@ services:
 
   mock:
     build: ../checkdev-mock
-    ports: ["9912:9912"]
+    ports: [ "9912:9912" ]
 
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/cd_mock
@@ -96,12 +139,15 @@ services:
 
   site:
     build: ../checkdev-site
-    ports: ["8080:8080"]
+    ports: [ "8080:8080" ]
 
     environment:
       EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka:9009/eureka
+      SPRING_KAFKA_PRODUCER_BOOTSTRAP_SERVERS: kafka:29092
 
     depends_on:
+      kafka:
+        condition: service_healthy
       eureka:
         condition: service_healthy
       auth:
@@ -113,7 +159,7 @@ services:
       mock:
         condition: service_started
 
-    entrypoint: ["sh", "-c", "sleep 20 && exec java -jar app.jar"]
+    entrypoint: [ "sh", "-c", "sleep 20 && exec java -jar app.jar" ]
 
   notification:
     build: ../checkdev-notification
@@ -124,19 +170,23 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
 
+      SPRING_KAFKA_CONSUMER_BOOTSTRAP_SERVERS: kafka:29092
+
       SECURITY_OAUTH2_RESOURCE_USERINFOURI: http://auth:9900/user
       SERVER_AUTH: http://auth:9900
       SITE_LOGIN_URL: http://site:8080/login
+
       EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka:9009/eureka
-
       TG_USERNAME: ${TG_USERNAME}
-      TG_TOKEN: ${TG_TOKEN}
 
+      TG_TOKEN: ${TG_TOKEN}
       KEYCLOAK_TOKEN_URI: http://keycloak:8080/realms/checkdev/protocol/openid-connect/token
       KEYCLOAK_CLIENT_ID: notification
       KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET}
 
     depends_on:
+      kafka:
+        condition: service_healthy
       postgres:
         condition: service_healthy
       eureka:
@@ -147,3 +197,4 @@ services:
 volumes:
   postgres_data:
   keycloak_data:
+  kafka_data:
