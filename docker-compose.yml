@@ -159,7 +159,7 @@ services:
       mock:
         condition: service_started
 
-    entrypoint: [ "sh", "-c", "sleep 20 && exec java -jar app.jar" ]
+    entrypoint: [ "sh", "-c", "sleep 25 && exec java -jar app.jar" ]
 
   notification:
     build: ../checkdev-notification
